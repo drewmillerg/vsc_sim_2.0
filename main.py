@@ -56,6 +56,7 @@ Todo:
 """
 
 import random
+import traceback
 import simpy
 import numpy as np
 import pandas as pd
@@ -67,14 +68,14 @@ import math
 # from call_center import CallCenter
 
 
+
 """ Global vars
 All of the time related variables are in seconds, and outputs converted to 
 minutes later when data is recorded/displayed.
 """
 
-
 """
-Set these vars based on current real world data
+------- Set these vars based on current real world data
 """
 # if this is enabled,  dependent variable will be randomized based on their
 #   mean and stdev. Otherwise only the mean will be used. 
@@ -110,11 +111,12 @@ AGENT_PORTIONS = {
 }
 
 
-"""
-These vars are used during runtime for tracking and calculations.
-    DO NOT set/hardcode these variables manually
-"""
 
+"""
+---- These vars are used during runtime for tracking and calculations.
+     DO NOT hardcode these variables.
+"""
+START = datetime.datetime.now()
 AGENT_NO = 0
 # tracks the agents currently working
 #   key is int tracking the agent that is starting
@@ -178,6 +180,9 @@ class CallCenter:
 
 
 def set_handle_time():
+    """
+    Setter for handle time.
+    """
     global HANDLE_TIME
     
     if ENABLE_DISTRIBUTIONS:
@@ -279,6 +284,7 @@ def add_agent(hours_left = 8, this_agent = 0):
         AGENTS_WORKING[this_agent] = hours_left
 
 
+
 def decrement_agent_hours_left():
     """
     Subtracts an hour from the time each agent has left to work
@@ -297,12 +303,14 @@ def decrement_agent_hours_left():
             continue
 
 
+
 def get_agents_working_count():
     """
     Getter for AGENTS WORKING
     """
     print("Agents working:", len(AGENTS_WORKING))
     return len(AGENTS_WORKING)
+
 
 
 def day_customer_interval(hour=12):
@@ -321,6 +329,7 @@ def day_customer_interval(hour=12):
     CUSTOMER_INTERVAL = int(day_seconds / interactions)
 
     return CUSTOMER_INTERVAL
+
 
 
 def hour_customer_interval(hour=12):
@@ -345,6 +354,7 @@ def hour_customer_interval(hour=12):
     return HOUR_INTERVAL
 
 
+
 def set_interactions_today():
     global INTERACTIONS_TODAY
 
@@ -355,7 +365,6 @@ def set_interactions_today():
     else: INTERACTIONS_TODAY = INTERACTIONS_MEAN
     
     
-
 
 def customer(env, call_center, wait_time=0):
     """ 
@@ -424,6 +433,7 @@ def customer(env, call_center, wait_time=0):
         CUSTOMERS_HANDLED +=1
 
 
+
 def print_customers_waiting():
     global CUSTOMERS_WAITING
     
@@ -434,6 +444,7 @@ def print_customers_waiting():
             print(f" {i} ", end="")
         print(" ] ", end="")
     print(" ]")
+
 
 
 def run_sim(env, num_employees, handle_time, customer_interval, waiting=2):
@@ -535,12 +546,14 @@ def simulate_day():
     log_data(day_df)
 
 
+
 def max_output_possible():
     """
     Computes the number of interactions that could have been handled during
         the simulation.
     """
     return AGENT_STARTS * SIM_TIME / HANDLE_TIME
+
 
 
 def get_utilization():
@@ -569,6 +582,8 @@ def get_utilization():
     else:
         return util
 
+
+
 def get_asr():
     """
     Computes Average Speed to Respond
@@ -577,6 +592,7 @@ def get_asr():
     """
     
     return sum(WAIT_TIMES) / len(WAIT_TIMES) / 60
+
 
 
 def hour_to_df():
@@ -624,6 +640,7 @@ def hour_to_df():
     return df
 
 
+
 def day_to_df():
     """
     Creates dataframe with the inputs and outputs of each sim run
@@ -668,6 +685,8 @@ def day_to_df():
 
     return df
 
+
+
 def log_data(df):
     """
     logs the inputs and outputs from the hour in the "log.csv" file, for 
@@ -675,36 +694,98 @@ def log_data(df):
     """
     df.to_csv('log.csv', mode='a', index=False, header=False)
 
+
+
 def main():
+    
+    # # running the sim
+    # print("Starting Call Center Simulation")
+    # simulate_day()
+
     
     try:
         # running the sim
         print("Starting Call Center Simulation")
         simulate_day()
 
-    except:
-        print("An error occurred during this run of the simulation.")
+    except ValueError as ve:
+        print("\nError: You may have run out of agents for the day\n")
+        traceback.print_exception()
+    except: 
+        print("An unhandled error ocurred during this run of the simulation.")
+        traceback.print_exception()
         
-
-
-if __name__ == "__main__":
+        
+        
+def full_spectrum():
+    """Runs the sim in the full range of dependent variables
+        -Note: This can take a very long time, because it is essentially O(n^3)
+            where n is the number of steps through each variable loop
+        """
+    global ENABLE_DISTRIBUTIONS, HANDLE_TIME_MEAN, INTERACTIONS_MEAN
+    global AGENT_STARTS, INTERACTIONS_STDEV, HANDLE_TIME_STDEV
     
-    """Testing"""
-    # edit these ranges and run to do full spectrum testing
+    # edit these ranges and run to do full spectrum testing    
+    ENABLE_DISTRIBUTIONS = False
+    
     handle_minutes_min = 8.5
     handle_minutes_max = 11
     step_minutes = .5
+    HANDLE_TIME_STDEV = .083
+    
+    interactions_min = 800
+    interactions_max = 1200
+    interactions_step = 50
+    INTERACTIONS_STDEV = 40
+    
+    agent_starts_min = 17
+    agent_starts_max = 25
+    
     start = int(handle_minutes_min * 60)
     stop = int(handle_minutes_max * 60)
     step = int(step_minutes * 60)
     for i in range(start, stop, step):
         HANDLE_TIME_MEAN = i/60
         
-        for j in range(800, 1200, 50):
+        for j in range(interactions_min, interactions_max, interactions_step):
             INTERACTIONS_MEAN = j
                     
-            for k in range(17, 25):
+            for k in range(agent_starts_min, agent_starts_max):
                 AGENT_STARTS = k
             
                 for l in range(0,1):
-                    main()
+                    main()    
+                    
+                    
+                    
+def single_run():
+    """Runs the sim a single time"""
+    global ENABLE_DISTRIBUTIONS, HANDLE_TIME_MEAN, INTERACTIONS_MEAN
+    global AGENT_STARTS, INTERACTIONS_STDEV, HANDLE_TIME_STDEV
+    
+    ENABLE_DISTRIBUTIONS = False
+    # agent starts pe
+    # r day
+    AGENT_STARTS = 16
+    # stats about the interactions that VSC handless in a day (calculate based on 
+    # stat analysis)
+    INTERACTIONS_MEAN = 950
+    INTERACTIONS_STDEV = 40
+    # in seconds (480 sec = 8 min) 10.6min = 640 sec, effective handle time, 
+    #   based on 45 interaction per agent. This was the average as of 2/8/23 with
+    #   our heaviest volumes
+    HANDLE_TIME_MEAN = 9.17
+    HANDLE_TIME_STDEV = .083
+    
+    main()
+    
+
+
+if __name__ == "__main__":
+    """Use this as a driver script"""
+    
+    # testing
+    single_run()
+    # full_spectrum()
+    
+    
