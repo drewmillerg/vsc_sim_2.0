@@ -77,6 +77,7 @@ minutes later when data is recorded/displayed.
 """
 
 VERBOSE_CONSOLE = False
+LOG_BUFFER = ""
 
 """
 ------- Set these vars based on current real world data
@@ -700,6 +701,8 @@ def log_data(df):
     logs the inputs and outputs from the hour in the "log.csv" file, for 
         later analysis
     """
+    global LOG_BUFFER
+    LOG_BUFFER += "{}\n".format(df.to_string(index=False, header=False))
     df.to_csv('log.csv', mode='a', index=False, header=False)
 
 
@@ -718,14 +721,17 @@ def main():
 
     except ValueError as ve:
         print("\nError: You may have run out of agents for the day\n")
-        traceback.print_exception()
-    except: 
+        traceback.print_exception(ve)
+    except Exception as e: 
         print("An unhandled error ocurred during this run of the simulation.")
-        traceback.print_exception()
+        traceback.print_exception(e)
         
         
         
-def full_spectrum():
+def full_spectrum(repeat_count=None, dist=None,
+                  handle_minutes_min=None, handle_minutes_max=None, step_minutes=None, handle_stdev=None,
+                  interactions_min=None, interactions_max=None, interactions_step=None, inter_stdev=None,
+                  agent_starts_min=None, agent_starts_max=None):
     """Runs the sim in the full range of dependent variables
         -Note: This can take a very long time, because it is essentially O(n^3)
             where n is the number of steps through each variable loop
@@ -734,58 +740,58 @@ def full_spectrum():
     global AGENT_STARTS, INTERACTIONS_STDEV, HANDLE_TIME_STDEV
     
     # edit these ranges and run to do full spectrum testing    
-    ENABLE_DISTRIBUTIONS = False
-    repeat_count = 1
+    ENABLE_DISTRIBUTIONS = False if not dist else dist
+    _repeat_count = 1 if not repeat_count else repeat_count
     
-    handle_minutes_min = 8.5
-    handle_minutes_max = 12
-    step_minutes = .5
-    HANDLE_TIME_STDEV = .083
+    _handle_minutes_min = 8.5 if not handle_minutes_min else handle_minutes_min
+    _handle_minutes_max = 12 if not handle_minutes_max else handle_minutes_max
+    _step_minutes = .5 if not step_minutes else step_minutes
+    HANDLE_TIME_STDEV = .083 if not handle_stdev else handle_stdev
     
-    interactions_min = 800
-    interactions_max = 1400
-    interactions_step = 50
-    INTERACTIONS_STDEV = 40
+    _interactions_min = 800 if not interactions_min else interactions_min
+    _interactions_max = 1400 if not interactions_max else interactions_max
+    _interactions_step = 50 if not interactions_step else interactions_step
+    INTERACTIONS_STDEV = 40 if not inter_stdev else inter_stdev
     
-    agent_starts_min = 20
-    agent_starts_max = 30
+    _agent_starts_min = 20 if not agent_starts_min else agent_starts_min
+    _agent_starts_max = 30 if not agent_starts_max else agent_starts_max
     
     # do not change these
-    start = int(handle_minutes_min * 60)
-    stop = int(handle_minutes_max * 60)
-    step = int(step_minutes * 60)
-    for i in range(start, stop + step, step):
+    _start = int(_handle_minutes_min * 60)
+    _stop = int(_handle_minutes_max * 60)
+    _step = int(_step_minutes * 60)
+    for i in range(_start, _stop + _step, _step):
         HANDLE_TIME_MEAN = i/60
         
-        for j in range(interactions_min, interactions_max + step, interactions_step):
+        for j in range(_interactions_min, _interactions_max + _step, _interactions_step):
             INTERACTIONS_MEAN = j
                     
-            for k in range(agent_starts_min, agent_starts_max + 1):
+            for k in range(_agent_starts_min, _agent_starts_max + 1):
                 AGENT_STARTS = k
             
-                for l in range(0, repeat_count):
+                for l in range(0, _repeat_count):
                     main()    
                     
                     
                     
-def single_run():
+def single_run(dist=None: bool, starts=None, inter_mean=None, inter_stdev=None, handle_mean=None, handle_stdev=None):
     """Runs the sim a single time"""
     global ENABLE_DISTRIBUTIONS, HANDLE_TIME_MEAN, INTERACTIONS_MEAN
     global AGENT_STARTS, INTERACTIONS_STDEV, HANDLE_TIME_STDEV
     
-    ENABLE_DISTRIBUTIONS = False
+    ENABLE_DISTRIBUTIONS = False if not dist else dist
     # agent starts pe
     # r day
-    AGENT_STARTS = 18
+    AGENT_STARTS = 18 if not starts else starts
     # stats about the interactions that VSC handless in a day (calculate based on 
     # stat analysis)
-    INTERACTIONS_MEAN = 1020
-    INTERACTIONS_STDEV = 40
+    INTERACTIONS_MEAN = 1020 if not inter_mean else inter_mean
+    INTERACTIONS_STDEV = 40 if not inter_stdev else inter_stdev
     # in seconds (480 sec = 8 min) 10.6min = 640 sec, effective handle time, 
     #   based on 45 interaction per agent. This was the average as of 2/8/23 with
     #   our heaviest volumes
-    HANDLE_TIME_MEAN = 9.909
-    HANDLE_TIME_STDEV = .083
+    HANDLE_TIME_MEAN = 9.909 if not handle_mean else handle_mean
+    HANDLE_TIME_STDEV = .083 if not handle_stdev else handle_stdev
     
     main()
     
@@ -832,8 +838,8 @@ if __name__ == "__main__":
     """Use this as a driver script"""
     
     # testing
-    # single_run()
+    single_run()
     # full_spectrum()
-    custom_run()
+    # custom_run()
     
     
