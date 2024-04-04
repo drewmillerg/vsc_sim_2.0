@@ -57,6 +57,9 @@ Bugs:
     only holding one customer at a time.
 """
 
+# from customer import Customer
+# from waiting_queue import WaitingQueue
+# from call_center import CallCenter
 import random
 import traceback
 import simpy
@@ -65,40 +68,39 @@ import pandas as pd
 import datetime
 import csv
 import math
-# from customer import Customer
-# from waiting_queue import WaitingQueue
-# from call_center import CallCenter
-
+from typing import Optional, List
 
 
 """ Global vars
 All of the time related variables are in seconds, and outputs converted to 
 minutes later when data is recorded/displayed.
+
 """
 
-VERBOSE_CONSOLE = False
+# Console logging can be set to 'verbose', 'normal', or 'minimal'
+CONSOLE_LOGGING_LEVEL = 'minimal'
 LOG_BUFFER = ""
 
 """
 ------- Set these vars based on current real world data
 """
 # if this is enabled,  dependent variable will be randomized based on their
-#   mean and stdev. Otherwise only the mean will be used. 
+#   mean and stdev. Otherwise only the mean will be used.
 ENABLE_DISTRIBUTIONS = False
 # agent starts pe
 # r day
 AGENT_STARTS = 20
-# stats about the interactions that VSC handless in a day (calculate based on 
+# stats about the interactions that VSC handless in a day (calculate based on
 # stat analysis)
 INTERACTIONS_MEAN = 950
 INTERACTIONS_STDEV = 40
-# in seconds (480 sec = 8 min) 10.6min = 640 sec, effective handle time, 
+# in seconds (480 sec = 8 min) 10.6min = 640 sec, effective handle time,
 #   based on 45 interaction per agent. This was the average as of 2/8/23 with
 #   our heaviest volumes
 HANDLE_TIME_MEAN = 9.91
 HANDLE_TIME_STDEV = .083
 # dictionary for setting the proportion of customer interactions that come
-#   in for each hour. 
+#   in for each hour.
 #       Must add up to 1
 WORK_PORTIONS = {
     '0': .002, '1': .002, '2': .005, '3': .008, '4': .026, '5': .053,
@@ -106,15 +108,14 @@ WORK_PORTIONS = {
     '12': .099, '13': .073, '14': .046, '15': .033, '16': .024, '17': .015,
     '18': .010, '19': .007, '20': .004, '21': .003, '22': .003, '23': .003
 }
-# portion of the agents that you want working per hour. 
+# portion of the agents that you want working per hour.
 #   Must add up to 1
 AGENT_PORTIONS = {
     '0': .04, '1': .04, '2': .04, '3': .09, '4': .18, '5': .4,
     '6': .57, '7': .62, '8': .74, '9': .79, '10': .84, '11': .88,
     '12': .84, '13': .75, '14': .57, '15': .4, '16': .31, '17': .22,
-    '18': .22, '19': .13, '20': .09, '21': .09, '22': .04, '23': .04   
+    '18': .22, '19': .13, '20': .09, '21': .09, '22': .04, '23': .04
 }
-
 
 
 """
@@ -130,9 +131,9 @@ AGENTS_WORKING = {}
 BENCH = -1
 # this is set for the day by the setter function
 INTERACTIONS_TODAY = 0
-# Customer interaction intervals are on a normal dist based on trailing 30 day 
+# Customer interaction intervals are on a normal dist based on trailing 30 day
 #   data
-# CUSTOMER_INTERVAL = 33 # how often customer interactions flow in, cases/ 
+# CUSTOMER_INTERVAL = 33 # how often customer interactions flow in, cases/
 #   calls come in every 33 seconds in this case, corresponds to about 872 interactions
 CUSTOMER_INTERVAL = 0
 HOUR_INTERVAL = 0
@@ -146,7 +147,7 @@ CUSTOMERS_HANDLED = 0
 CURRENT_HOUR = 0
 # set by a setter, based on the mean and stdev given. will be represented in seconds.
 HANDLE_TIME = -1
-# 2d list containing the customers waiting at any given time. 
+# 2d list containing the customers waiting at any given time.
 # each element is a list of size 2, where:
 # [0] is the name
 # [1] is the time they entered the waiting queue, relative to the beginning of the hour
@@ -159,47 +160,49 @@ RESIDUAL_WAIT_TIMES = []
 PREV_HOUR_CUTOFF_CUST = 0
 
 
-
 class CallCenter:
     """ 
     Represents a call center or customer service center that takes calls or cases.
     Container for an env, staff resources, and handle time 
     """
 
-    def __init__(self, env, num_employees, handle_time):
+    def __init__(self, env: simpy.Environment, num_employees: int, handle_time: int):
         self.env = env
         self.staff = simpy.Resource(env, num_employees)
         self.support_time = handle_time
 
-    def support(self, customer, opt_handle_time=None):
+    def support(self, customer: int, opt_handle_time: int = None):
         # time it takes to handle a call.
         if opt_handle_time == None:
             yield self.env.timeout(self.support_time)
-            if VERBOSE_CONSOLE: print(f"Support finished for {customer} at {self.env.now/60:.2f}")
-        # if an argument for the handle time is not given, use the global 
+            if CONSOLE_LOGGING_LEVEL == 'verbose':
+                print(
+                    f"Support finished for {customer} at {self.env.now/60:.2f}")
+        # if an argument for the handle time is not given, use the global
         #   handle time. Else use the given handle time.
         else:
             yield self.env.timeout(opt_handle_time)
-            if VERBOSE_CONSOLE: print(f"Support finished for {customer} at {self.env.now/60:.2f}")
+            if CONSOLE_LOGGING_LEVEL == 'verbose':
+                print(
+                    f"Support finished for {customer} at {self.env.now/60:.2f}")
 
 
-
-def set_handle_time():
+def set_handle_time() -> None:
     """
     Setter for handle time.
     """
     global HANDLE_TIME
-    
+
     if ENABLE_DISTRIBUTIONS:
         mean = int(HANDLE_TIME_MEAN * 60)
         stdev = int(HANDLE_TIME_STDEV * 60)
         HANDLE_TIME = int(np.random.normal(mean, stdev, 1))
-    
-    else: HANDLE_TIME = int(HANDLE_TIME_MEAN * 60)
+
+    else:
+        HANDLE_TIME = int(HANDLE_TIME_MEAN * 60)
 
 
-
-def set_agents_working(hour=12):
+def set_agents_working(hour: int = 12) -> None:
     """
     Setter for AGENTS_WORKING
     This will be used to determine how many agents are working, each time the
@@ -208,7 +211,7 @@ def set_agents_working(hour=12):
     TODO: make the number of employees returned dynamic, based on the number 
             of total agent starts and the time of day.
     """
-    
+
     global CURRENT_HOUR, AGENT_NO, AGENTS_WORKING, BENCH
     # simplified version
     # AGENTS_WORKING = 18
@@ -216,7 +219,7 @@ def set_agents_working(hour=12):
     # filling the bench
     if CURRENT_HOUR == 0:
         # subtracting 1 to account for the night agent
-        BENCH = AGENT_STARTS -1
+        BENCH = AGENT_STARTS - 1
 
     # setting up AGENTS_WORKING for off hours
     # if it's earler than 3 am, night agent from previous day will be working
@@ -228,7 +231,7 @@ def set_agents_working(hour=12):
 
     # if it's later than 9 pm
     elif CURRENT_HOUR > 21:
-        # if it's 10 pm, there is one agent and they have 2 hours left 
+        # if it's 10 pm, there is one agent and they have 2 hours left
         if CURRENT_HOUR == 22:
             AGENTS_WORKING = {-1: 2}
         else:
@@ -238,8 +241,10 @@ def set_agents_working(hour=12):
     else:
         previous_agent_count = get_agents_working_count()
         decrement_agent_hours_left()
-        ideal_agents_working = int(AGENT_STARTS * AGENT_PORTIONS[str(CURRENT_HOUR)])
-        if VERBOSE_CONSOLE: print("Ideal number of agents working:", ideal_agents_working)
+        ideal_agents_working = int(
+            AGENT_STARTS * AGENT_PORTIONS[str(CURRENT_HOUR)])
+        if CONSOLE_LOGGING_LEVEL == 'verbose':
+            print("Ideal number of agents working:", ideal_agents_working)
         ideal_agents_added = ideal_agents_working - previous_agent_count
 
         # case where staff and caseload are ramping up
@@ -253,72 +258,72 @@ def set_agents_working(hour=12):
             elif ideal_agents_added > BENCH:
                 for i in range(BENCH):
                     add_agent()
-    
-    print("On bench:", BENCH)
+
+    if CONSOLE_LOGGING_LEVEL != 'minimal': print("On bench:", BENCH)
     # for agent in AGENTS_WORKING:
     #     print("Agent", agent, "has", AGENTS_WORKING[agent], "hours left." )
-    
-    # case where there are not enough agents and so capacity is running at 
+
+    # case where there are not enough agents and so capacity is running at
     #   minimum
     if AGENTS_WORKING == 0:
-        print("You ran out of agent resources. Work is now running with 1 staff resource.")
+        if CONSOLE_LOGGING_LEVEL != 'minimal': print("You ran out of agent resources. Work is now running with 1 staff resource.")
         AGENTS_WORKING = 1
-                
 
-    
-def add_agent(hours_left = 8, this_agent = 0):
+
+def add_agent(hours_left: int = 8, this_agent: int = 0) -> None:
     """
     Adds one agent to the dict of currently working agents.
         if this_agnet variable is left default it means that this is the first
         agent of the day (technically started yesterday), which is why the 
         AGENT_NO does not get incremented.
     """
-    
+
     global AGENT_NO
     global AGENTS_WORKING
     global BENCH
     # default adds an agent to AGENTS_WORKING
     if this_agent == 0:
-        if VERBOSE_CONSOLE: print("Added agent", AGENT_NO, "to AGENTS_WORKING, with", hours_left, "hours left.")
+        if CONSOLE_LOGGING_LEVEL == 'verbose':
+            print("Added agent", AGENT_NO, "to AGENTS_WORKING, with",
+                  hours_left, "hours left.")
         AGENT_NO += 1
         AGENTS_WORKING[AGENT_NO] = hours_left
         BENCH -= 1
     # adds specific agent
     else:
-        if VERBOSE_CONSOLE: print("Added agent", this_agent, "to AGENTS_WORKING, with", hours_left, "hours left.")
+        if CONSOLE_LOGGING_LEVEL == 'verbose':
+            print("Added agent", this_agent,
+                  "to AGENTS_WORKING, with", hours_left, "hours left.")
         AGENTS_WORKING[this_agent] = hours_left
 
 
-
-def decrement_agent_hours_left():
+def decrement_agent_hours_left() -> None:
     """
     Subtracts an hour from the time each agent has left to work
     if the time they have left is 0, it removes them.
     """
-    global AGENTS_WORKING 
-    
+    global AGENTS_WORKING
+
     for i in tuple(AGENTS_WORKING):
         try:
             if AGENTS_WORKING[i] == 0:
                 del AGENTS_WORKING[i]
             else:
-                AGENTS_WORKING[i] -=1
+                AGENTS_WORKING[i] -= 1
         except:
             print("Error: Out of bounds", i, "for AGENTS_WORKING dict.")
             continue
 
 
-
-def get_agents_working_count():
+def get_agents_working_count() -> int:
     """
     Getter for AGENTS WORKING
     """
-    print("Agents working:", len(AGENTS_WORKING))
+    if CONSOLE_LOGGING_LEVEL != 'minimal': print("Agents working:", len(AGENTS_WORKING))
     return len(AGENTS_WORKING)
 
 
-
-def day_customer_interval(hour=12):
+def day_customer_interval(hour: int = 12) -> int:
     """
     Provides the interval upon which the work comes in for a given sim 
         execution.
@@ -336,8 +341,7 @@ def day_customer_interval(hour=12):
     return CUSTOMER_INTERVAL
 
 
-
-def hour_customer_interval(hour=12):
+def hour_customer_interval(hour: int = 12) -> int:
     """
     Provides the interval upon which the work comes in for a given hour.
     Assumes: 
@@ -353,25 +357,27 @@ def hour_customer_interval(hour=12):
     # correction_coefficient = 1
     interactions_this_hour = int(
         (INTERACTIONS_TODAY * WORK_PORTIONS[str(CURRENT_HOUR)]) * correction_coefficient)
-    if VERBOSE_CONSOLE: print("Interactions for hour", CURRENT_HOUR, " are:", interactions_this_hour)
+    if CONSOLE_LOGGING_LEVEL == 'verbose':
+        print("Interactions for hour", CURRENT_HOUR,
+              " are:", interactions_this_hour)
     HOUR_INTERVAL = int(3600 / interactions_this_hour)
-    if VERBOSE_CONSOLE: print("Customer interval for this hour is:", HOUR_INTERVAL, "seconds.")
+    if CONSOLE_LOGGING_LEVEL == 'verbose':
+        print("Customer interval for this hour is:", HOUR_INTERVAL, "seconds.")
     return HOUR_INTERVAL
 
 
-
-def set_interactions_today():
+def set_interactions_today() -> None:
     global INTERACTIONS_TODAY
 
     if ENABLE_DISTRIBUTIONS:
         INTERACTIONS_TODAY = int(
             np.random.normal(INTERACTIONS_MEAN, INTERACTIONS_STDEV, 1))
-    
-    else: INTERACTIONS_TODAY = INTERACTIONS_MEAN
-    
-    
 
-def customer(env, call_center, wait_time=0):
+    else:
+        INTERACTIONS_TODAY = INTERACTIONS_MEAN
+
+
+def customer(env: simpy.Environment, call_center: CallCenter, wait_time: int = 0) -> None:
     """ 
     Represents a customer interaction
 
@@ -380,139 +386,147 @@ def customer(env, call_center, wait_time=0):
     """
     global CUSTOMERS_HANDLED, CUSTOMERS_WAITING, CUSTOMER_NUM, CUSTOMERS_BEING_HELPED
 
-    
     # print("Current day: ", get_day(env))
     CUSTOMER_NUM += 1
     name = CUSTOMER_NUM
     wait_start = (env.now - wait_time)
-    if VERBOSE_CONSOLE: print(f"Customer {name} enters waiting queue at {wait_start/60:.2f}!")
+    if CONSOLE_LOGGING_LEVEL == 'verbose':
+        print(f"Customer {name} enters waiting queue at {wait_start/60:.2f}!")
     # adding a customer to the list waiting
-    # 2d array that holds the cust name, their wait time if they are still in 
+    # 2d array that holds the cust name, their wait time if they are still in
     #    the waiting queue
 
     # only add cust to waiting if they were not already waiting
     if wait_start >= 0:
         CUSTOMERS_WAITING.append([name, SIM_TIME - wait_start])
-        if VERBOSE_CONSOLE: print(f"CUSTOMERS_WAITING size after adding customer = {len(CUSTOMERS_WAITING)}")
+        if CONSOLE_LOGGING_LEVEL == 'verbose':
+            print(
+                f"CUSTOMERS_WAITING size after adding customer = {len(CUSTOMERS_WAITING)}")
         # print_customers_waiting()
 
     with call_center.staff.request() as request:
         yield request
 
-        if VERBOSE_CONSOLE: print(f"Customer {name} enterscall at {env.now/60:.2f}")
+        if CONSOLE_LOGGING_LEVEL == 'verbose':
+            print(f"Customer {name} enterscall at {env.now/60:.2f}")
         # add customer to the being-helped list
         if len(CUSTOMERS_BEING_HELPED) == 0:
             CUSTOMERS_BEING_HELPED.append([name, int(SIM_TIME - env.now)])
-            
+
         elif name < CUSTOMERS_BEING_HELPED[0][0] or name > CUSTOMERS_BEING_HELPED[-1][0]:
             CUSTOMERS_BEING_HELPED.append([name, int(SIM_TIME - env.now)])
-            
-        # if customer was already being helped, subtract the time they've been helped from the 
+
+        # if customer was already being helped, subtract the time they've been helped from the
         #   time it takes to help them. Otherwise use the global handle time.
         if env.now == 0:
             for cust in CUSTOMERS_BEING_HELPED:
                 # if cust is being helped and they didn't enter queue at the beginning of this hour:
                 if cust[0] == name:
                     if cust[1] != 3600:
-                        yield env.process(call_center.support(name, HANDLE_TIME - cust[1])) 
+                        yield env.process(call_center.support(name, HANDLE_TIME - cust[1]))
                         break
-                    
+
                     else:
                         yield env.process(call_center.support(name))
-                        
-                    
+
         else:
-            yield env.process(call_center.support(name))   
+            yield env.process(call_center.support(name))
 
         wait_end = env.now
-        if VERBOSE_CONSOLE: print(f"Customer {name} left call at {env.now/60:.2f}")
-        if VERBOSE_CONSOLE: print(f"Removing customer {CUSTOMERS_WAITING[0][0]} from waiting array")
+        if CONSOLE_LOGGING_LEVEL == 'verbose':
+            print(f"Customer {name} left call at {env.now/60:.2f}")
+        if CONSOLE_LOGGING_LEVEL == 'verbose':
+            print(
+                f"Removing customer {CUSTOMERS_WAITING[0][0]} from waiting array")
         CUSTOMERS_WAITING.pop(0)
         CUSTOMERS_BEING_HELPED.pop(0)
-        if VERBOSE_CONSOLE: print(
-            f"CUSTOMERS_WAITING size after removing customer = {len(CUSTOMERS_WAITING)}")
+        if CONSOLE_LOGGING_LEVEL == 'verbose':
+            print(
+                f"CUSTOMERS_WAITING size after removing customer = {len(CUSTOMERS_WAITING)}")
 
         speed_to_respond = wait_end - wait_start
         WAIT_TIMES.append(speed_to_respond)
-        if VERBOSE_CONSOLE: print(f"Speed to respond: {speed_to_respond / 60:.2f}")
-        CUSTOMERS_HANDLED +=1
+        if CONSOLE_LOGGING_LEVEL == 'verbose':
+            print(f"Speed to respond: {speed_to_respond / 60:.2f}")
+        CUSTOMERS_HANDLED += 1
 
 
-
-def print_customers_waiting():
+def print_customers_waiting() -> None:
     global CUSTOMERS_WAITING
-    
-    print("Waiting: [ ", end="")
-    for cust in CUSTOMERS_WAITING:
-        print(" [ ", end="")
-        for i in cust:
-            print(f" {i} ", end="")
-        print(" ] ", end="")
-    print(" ]")
+
+    if CONSOLE_LOGGING_LEVEL != 'minimal': 
+        print("Waiting: [ ", end="")
+        for cust in CUSTOMERS_WAITING:
+            print(" [ ", end="")
+            for i in cust:
+                print(f" {i} ", end="")
+            print(" ] ", end="")
+        print(" ]")
 
 
-
-def run_sim(env, num_employees, handle_time, customer_interval, waiting=2):
+def run_sim(env: simpy.Environment, num_employees: int, handle_time: int,
+            customer_interval: int, waiting: int = 2) -> None:
     """
     Runs the simulation, simulates one hour per execution. 
     """
     global CUSTOMERS_WAITING
     global CUSTOMER_NUM
     global PREV_HOUR_CUTOFF_CUST
-    
-    # this is used so that customers who have been waiting more than 
+
+    # this is used so that customers who have been waiting more than
     #   1 hour can have another hour added to their wait time.
     first_customer_this_hour = CUSTOMER_NUM + len(CUSTOMERS_WAITING) + 1
-    if VERBOSE_CONSOLE: print(f"First customer this hour: {first_customer_this_hour}")
-    
+    if CONSOLE_LOGGING_LEVEL == 'verbose':
+        print(f"First customer this hour: {first_customer_this_hour}")
+
     # accounting for additional hours that customers have been waiting
     try:
-        for i in range(first_customer_this_hour -1):
+        for i in range(first_customer_this_hour - 1):
             CUSTOMERS_WAITING[i][1] += 3600
-            
+
     except:
         pass
-    
+
     # showing the customers waiting
-    print("Customers waiting:", len(CUSTOMERS_WAITING))
+    if CONSOLE_LOGGING_LEVEL != 'minimal': print("Customers waiting:", len(CUSTOMERS_WAITING))
 
     # avoids the error where you run out of employee resources
     if num_employees == 0:
-        call_center = CallCenter(env, 1, handle_time)  
-    else: 
+        call_center = CallCenter(env, 1, handle_time)
+    else:
         call_center = CallCenter(env, num_employees, handle_time)
 
     # the range is the number of customers that are already waiting
     # for 5 waiting, you would do range(1,6)
     if len(CUSTOMERS_WAITING) == 0:
-        for i in range (1, 2):
+        for i in range(1, 2):
             env.process(customer(env, call_center))
-            
+
     else:
-        for i in range (1, len(CUSTOMERS_WAITING)+1):
-            env.process(customer(env,  call_center, 
+        for i in range(1, len(CUSTOMERS_WAITING)+1):
+            env.process(customer(env,  call_center,
                                  CUSTOMERS_WAITING[i-1][1] - 3600))
-            
+
     while True:
-        yield env.timeout(random.randint(customer_interval - 1, 
+        yield env.timeout(random.randint(customer_interval - 1,
                                          customer_interval + 1))
-        
+
         try:
             i += 1
-        except: i = 1
-        
+        except:
+            i = 1
+
         this_customer = customer(env, call_center)
         env.process(this_customer)
         # if env.now() == SIM_TIME:
-        
 
-    
-def clear_tracking_vars():
+
+def clear_tracking_vars() -> None:
     """This is so that the sim can be run multiple times in one execution"""
-    global CUSTOMER_NUM, CUSTOMERS_BEING_HELPED, CUSTOMERS_WAITING 
+    global CUSTOMER_NUM, CUSTOMERS_BEING_HELPED, CUSTOMERS_WAITING
     global CUSTOMERS_HANDLED, WAIT_TIMES, RESIDUAL_WAIT_TIMES
     global PREV_HOUR_CUTOFF_CUST, WAIT_TIMES
-    
+
     CUSTOMER_NUM = 0
     CUSTOMERS_BEING_HELPED = []
     CUSTOMERS_WAITING = []
@@ -520,10 +534,9 @@ def clear_tracking_vars():
     RESIDUAL_WAIT_TIMES = []
     PREV_HOUR_CUTOFF_CUST = 0
     WAIT_TIMES = []
-    
 
 
-def simulate_day():
+def simulate_day() -> None:
     """runs the sim for 24 hours, tracking the necessary variables"""
     global CURRENT_HOUR, CUSTOMERS_WAITING, CUSTOMER_NUM
     set_interactions_today()
@@ -531,7 +544,7 @@ def simulate_day():
     set_handle_time()
 
     for i in range(0, 24):
-        
+
         CURRENT_HOUR = i
         set_agents_working()
         my_env = simpy.Environment()
@@ -542,21 +555,20 @@ def simulate_day():
         # subtracting the waiting customers from the customer num, so that when
         #   they are added to the next hour, they have the correct name.
         CUSTOMER_NUM -= len(CUSTOMERS_WAITING)
-        print("Hour", CURRENT_HOUR, "ending.")
+        if CONSOLE_LOGGING_LEVEL != 'minimal': print("Hour", CURRENT_HOUR, "ending.")
         # logging and displaying data
-        print("Customers handled: " + str(CUSTOMERS_HANDLED))
+        if CONSOLE_LOGGING_LEVEL != 'minimal': print("Customers handled: " + str(CUSTOMERS_HANDLED))
         my_df = hour_to_df()
         asr = get_asr()
-        print(f"ASR: {asr:.2f}")
-        print(my_df.head())
+        if CONSOLE_LOGGING_LEVEL != 'minimal': print(f"ASR: {asr:.2f}")
+        if CONSOLE_LOGGING_LEVEL != 'minimal': print(my_df.head())
         # log_data(my_df)
-    
+
     day_df = day_to_df()
     log_data(day_df)
 
 
-
-def max_output_possible():
+def max_output_possible() -> float:
     """
     Computes the number of interactions that could have been handled during
         the simulation.
@@ -564,20 +576,19 @@ def max_output_possible():
     return AGENT_STARTS * SIM_TIME / HANDLE_TIME
 
 
-
-def get_utilization():
+def get_utilization() -> float:
     """
     Computes the actual utilization
-    
+
     Assumes: 
         - the sim has completed the day, so that all of the customers that 
         will be helped, have been helped.
         - all employees work an 8 hour shift
-        
+
     """
     # full capacity is the amount of customers that entered, minus the ones that entered during
     #   one unit of handle time.
-    
+
     # amount of labor time available
     # correction for rounding error
     # correction = .95
@@ -592,44 +603,42 @@ def get_utilization():
         return util
 
 
-
-def get_asr():
+def get_asr() -> float:
     """
     Computes Average Speed to Respond
     Must be called after the sim has completed.
     Return: float
     """
-    
+
     return sum(WAIT_TIMES) / len(WAIT_TIMES) / 60
 
 
-
-def hour_to_df():
+def hour_to_df() -> pd.DataFrame:
     """
     Creates dataframe with the inputs and outputs of each sim run
         Pass in the number of customers (interactions) handled
     """
 
     columns = [
-        
+
         "Agent Starts Label",
         "Agent Starts",
         "Agents Working Label",
         "Agents Working",
-        "Sim Hour Label", 
-        "Sim Hour", 
-        "Interactions Today Label", 
-        "Interactions Today", 
+        "Sim Hour Label",
+        "Sim Hour",
+        "Interactions Today Label",
+        "Interactions Today",
         "Interactions Handled Label",
         "Interactions Handled",
-        "ASR Label", 
-        "ASR", 
-        "Timestamp Label", 
+        "ASR Label",
+        "ASR",
+        "Timestamp Label",
         "Timestamp"
     ]
 
     df = pd.DataFrame(columns=columns, index=[0])
-    
+
     df["Agent Starts Label"] = " AgntStrts: "
     df["Agent Starts"] = AGENT_STARTS
     df["Agents Working Label"] = " AgntsWkng: "
@@ -644,38 +653,37 @@ def hour_to_df():
     df["ASR"] = round(get_asr(), 2)
     df["Timestamp Label"] = " Tmestmp: "
     df["Timestamp"] = datetime.datetime.now().strftime(
-        'X%m/X%d/%Y X%H:X%M:X%S').replace('X0','X').replace('X','')    
+        'X%m/X%d/%Y X%H:X%M:X%S').replace('X0', 'X').replace('X', '')
 
     return df
 
 
-
-def day_to_df():
+def day_to_df() -> pd.DataFrame:
     """
     Creates dataframe with the inputs and outputs of each sim run
         Pass in the number of customers (interactions) handled
     """
-    
+
     columns = [
-        
+
         "Agent Starts Label",
         "Agent Starts",
-        "Interactions Today Label", 
-        "Interactions Today", 
+        "Interactions Today Label",
+        "Interactions Today",
         "Interactions Handled Label",
         "Interactions Handled",
         "Handle Time Label",
         "Handle Time",
-        "ASR Label", 
-        "ASR", 
+        "ASR Label",
+        "ASR",
         "Utilization Label",
         "Utilization",
-        "Timestamp Label", 
+        "Timestamp Label",
         "Timestamp"
     ]
 
     df = pd.DataFrame(columns=columns, index=[0])
-    
+
     df["Agent Starts Label"] = " AgntStrts: "
     df["Agent Starts"] = AGENT_STARTS
     df["Interactions Today Label"] = " EstInteractns: "
@@ -690,13 +698,12 @@ def day_to_df():
     df["Utilization"] = round(get_utilization(), 2)
     df["Timestamp Label"] = " Tmestmp: "
     df["Timestamp"] = datetime.datetime.now().strftime(
-        'X%m/X%d/%Y X%H:X%M:X%S').replace('X0','X').replace('X','')    
+        'X%m/X%d/%Y X%H:X%M:X%S').replace('X0', 'X').replace('X', '')
 
     return df
 
 
-
-def log_data(df):
+def log_data(df) -> None:
     """
     logs the inputs and outputs from the hour in the "log.csv" file, for 
         later analysis
@@ -706,140 +713,180 @@ def log_data(df):
     df.to_csv('log.csv', mode='a', index=False, header=False)
 
 
+def main() -> None:
 
-def main():
-    
     # # running the sim
     # print("Starting Call Center Simulation")
     # simulate_day()
 
-    
     try:
         # running the sim
-        print("Starting Call Center Simulation")
+        if CONSOLE_LOGGING_LEVEL != 'minimal': print("Starting Call Center Simulation")
         simulate_day()
 
     except ValueError as ve:
         print("\nError: You may have run out of agents for the day\n")
         traceback.print_exception(ve)
-    except Exception as e: 
+    except Exception as e:
         print("An unhandled error ocurred during this run of the simulation.")
         traceback.print_exception(e)
-        
-        
-        
-def full_spectrum(repeat_count=None, dist=None,
-                  handle_minutes_min=None, handle_minutes_max=None, step_minutes=None, handle_stdev=None,
-                  interactions_min=None, interactions_max=None, interactions_step=None, inter_stdev=None,
-                  agent_starts_min=None, agent_starts_max=None):
+
+
+def full_spectrum(repeat_count: Optional[int] = None, dist: Optional[bool] = None,
+                  handle_minutes_min: Optional[float] = None, handle_minutes_max: Optional[float] = None,
+                  step_minutes: Optional[float] = None, handle_stdev: Optional[float] = None,
+                  interactions_min: Optional[int] = None, interactions_max: Optional[int] = None,
+                  interactions_step: Optional[int] = None, inter_stdev: Optional[int] = None,
+                  agent_starts_min: Optional[int] = None, agent_starts_max: Optional[int] = None) -> None:
     """Runs the sim in the full range of dependent variables
         -Note: This can take a very long time, because it is essentially O(n^3)
             where n is the number of steps through each variable loop
         """
     global ENABLE_DISTRIBUTIONS, HANDLE_TIME_MEAN, INTERACTIONS_MEAN
     global AGENT_STARTS, INTERACTIONS_STDEV, HANDLE_TIME_STDEV
-    
-    # edit these ranges and run to do full spectrum testing    
+
+    # edit these ranges and run to do full spectrum testing
     ENABLE_DISTRIBUTIONS = False if not dist else dist
     _repeat_count = 1 if not repeat_count else repeat_count
-    
+
     _handle_minutes_min = 8.5 if not handle_minutes_min else handle_minutes_min
     _handle_minutes_max = 12 if not handle_minutes_max else handle_minutes_max
     _step_minutes = .5 if not step_minutes else step_minutes
     HANDLE_TIME_STDEV = .083 if not handle_stdev else handle_stdev
-    
+
     _interactions_min = 800 if not interactions_min else interactions_min
     _interactions_max = 1400 if not interactions_max else interactions_max
     _interactions_step = 50 if not interactions_step else interactions_step
     INTERACTIONS_STDEV = 40 if not inter_stdev else inter_stdev
-    
+
     _agent_starts_min = 20 if not agent_starts_min else agent_starts_min
     _agent_starts_max = 30 if not agent_starts_max else agent_starts_max
-    
+
     # do not change these
     _start = int(_handle_minutes_min * 60)
     _stop = int(_handle_minutes_max * 60)
     _step = int(_step_minutes * 60)
-    for i in range(_start, _stop + _step, _step):
+    for i in range(_start, _stop + 1, _step):
         HANDLE_TIME_MEAN = i/60
-        
-        for j in range(_interactions_min, _interactions_max + _step, _interactions_step):
+
+        for j in range(_interactions_min, _interactions_max + 1, _interactions_step):
             INTERACTIONS_MEAN = j
-                    
+
             for k in range(_agent_starts_min, _agent_starts_max + 1):
                 AGENT_STARTS = k
-            
+
                 for l in range(0, _repeat_count):
-                    main()    
+                    main()
                     
                     
-                    
-def single_run(dist=None: bool, starts=None, inter_mean=None, inter_stdev=None, handle_mean=None, handle_stdev=None):
+def forecast_spectrum(interaction_forecast: List[int], repeat_count: Optional[int] = None, dist: Optional[bool] = None,
+                  handle_minutes_min: Optional[float] = None, handle_minutes_max: Optional[float] = None,
+                  step_minutes: Optional[float] = None, handle_stdev: Optional[float] = None,
+                  agent_starts_min: Optional[int] = None, agent_starts_max: Optional[int] = None) -> None:
+    """Runs the sim in the full range of dependent variables
+        -Note: This can take a very long time, because it is essentially O(n^3)
+            where n is the number of steps through each variable loop
+        """
+    global ENABLE_DISTRIBUTIONS, HANDLE_TIME_MEAN, INTERACTIONS_MEAN
+    global AGENT_STARTS, INTERACTIONS_STDEV, HANDLE_TIME_STDEV\
+        
+    
+    
+    # edit these ranges and run to do full spectrum testing
+    ENABLE_DISTRIBUTIONS = False if not dist else dist
+    _repeat_count = 1 if not repeat_count else repeat_count
+
+    _handle_minutes_min = 8.5 if not handle_minutes_min else handle_minutes_min
+    _handle_minutes_max = 12 if not handle_minutes_max else handle_minutes_max
+    _step_minutes = .5 if not step_minutes else step_minutes
+    HANDLE_TIME_STDEV = .083 if not handle_stdev else handle_stdev
+
+    _agent_starts_min = 20 if not agent_starts_min else agent_starts_min
+    _agent_starts_max = 30 if not agent_starts_max else agent_starts_max
+
+    # do not change these
+    _start = int(_handle_minutes_min * 60)
+    _stop = int(_handle_minutes_max * 60)
+    _step = int(_step_minutes * 60)
+    for interactions in interaction_forecast:
+        INTERACTIONS_MEAN = interactions
+
+        for j in range(_start, _stop + 1, _step):
+            HANDLE_TIME_MEAN = j/60
+
+            for k in range(_agent_starts_min, _agent_starts_max + 1):
+                AGENT_STARTS = k
+
+                for l in range(0, _repeat_count):
+                    main()
+
+
+def single_run(dist: Optional[bool] = None, starts: Optional[int] = None, inter_mean: Optional[int] = None,
+               inter_stdev: Optional[int] = None, handle_mean: Optional[float] = None,
+               handle_stdev: Optional[float] = None) -> None:
     """Runs the sim a single time"""
     global ENABLE_DISTRIBUTIONS, HANDLE_TIME_MEAN, INTERACTIONS_MEAN
     global AGENT_STARTS, INTERACTIONS_STDEV, HANDLE_TIME_STDEV
-    
+
     ENABLE_DISTRIBUTIONS = False if not dist else dist
-    # agent starts pe
-    # r day
+    # agent starts per day
     AGENT_STARTS = 18 if not starts else starts
-    # stats about the interactions that VSC handless in a day (calculate based on 
+    # stats about the interactions that VSC handless in a day (calculate based on
     # stat analysis)
     INTERACTIONS_MEAN = 1020 if not inter_mean else inter_mean
     INTERACTIONS_STDEV = 40 if not inter_stdev else inter_stdev
-    # in seconds (480 sec = 8 min) 10.6min = 640 sec, effective handle time, 
+    # in seconds (480 sec = 8 min) 10.6min = 640 sec, effective handle time,
     #   based on 45 interaction per agent. This was the average as of 2/8/23 with
     #   our heaviest volumes
     HANDLE_TIME_MEAN = 9.909 if not handle_mean else handle_mean
     HANDLE_TIME_STDEV = .083 if not handle_stdev else handle_stdev
-    
-    main()
-    
 
-def spectrum_run():
+    main()
+
+
+def spectrum_run() -> None:
     "Set up a spectrum of simulation conditions, and run all scenarios"
     global ENABLE_DISTRIBUTIONS, HANDLE_TIME_MEAN, INTERACTIONS_MEAN
     global AGENT_STARTS, INTERACTIONS_STDEV, HANDLE_TIME_STDEV
-    
+
     ENABLE_DISTRIBUTIONS = False
     HANDLE_TIME_MEAN = 9.911
-    
+
     # high forecast
-    interactions = [ 949,	934.05,	986.173913,	1003.055556 ]
-    
+    interactions = [949,	934.05,	986.173913,	1003.055556]
+
     for i in interactions:
         for agent_count in range(10, 25):
             INTERACTIONS_MEAN = int(round(i))
             AGENT_STARTS = agent_count
             main()
-            
-def custom_run():
+
+
+def custom_run() -> None:
     "Set up custom scenarios"
     global ENABLE_DISTRIBUTIONS, HANDLE_TIME_MEAN, INTERACTIONS_MEAN
     global AGENT_STARTS, INTERACTIONS_STDEV, HANDLE_TIME_STDEV
-    
+
     ENABLE_DISTRIBUTIONS = False
 
-    agent_counts = [20	, 22	, 20	, 20	, 17	, 18	, 21	, 20	, 18	, 17	, 19	, 23	, 21	, 19	, 19	, 20	, 22	, 18	, 19	, 19	, 18	, 21	, 19	, 18	, 17	, 22	, 21	, 20	, 15	, 17	, 20	, 22	, 21	, 18	, 19	, 21	, 19	, 19	, 19	, 20	, 22	, 21	, 21	, 19	, 19	, 23	, 19	, 18	, 16	, 18	, 21	, 18	, 19	, 18	, 18	, 21	, 20	, 20	, 17	, 18	, 23	, 15	, 18	, 18	, 20	, 21	, 21	, 21	, 19	, 22	, 23	, 21	, 20	, 19	, 19	, 22	, 20	, 22	, 20	, 22	, 21	, 15	, 20	, 22	, 21	, 18	, 20	, 19	, 18	, 23	, 22	, 19	, 17	, 20	, 21	, 22	, 20	, 18	, 19
-]
-    interaction_counts = [899	, 1039	, 950	, 901	, 951	, 962	, 937	, 962	, 913	, 1022	, 965	, 1061	, 1020	, 1017	, 1059	, 889	, 1072	, 925	, 981	, 1092	, 1014	, 1041	, 1010	, 902	, 1068	, 1023	, 977	, 967	, 909	, 1028	, 1143	, 1149	, 992	, 1001	, 1025	, 1054	, 1049	, 895	, 858	, 918	, 1097	, 860	, 1019	, 975	, 902	, 1083	, 947	, 857	, 722	, 957	, 964	, 833	, 962	, 885	, 936	, 1089	, 1055	, 1017	, 937	, 1042	, 1098	, 830	, 1030	, 1004	, 982	, 1089	, 1094	, 997	, 1010	, 1135	, 1063	, 1004	, 1011	, 970	, 930	, 1096	, 964	, 1007	, 954	, 977	, 938	, 628	, 925	, 951	, 1018	, 927	, 986	, 858	, 878	, 1047	, 1006	, 893	, 848	, 996	, 1017	, 1061	, 1059	, 982	, 1065
-]
-    EHTs = [10.6785317	, 10.625601550169	, 10.6105263716343	, 11.1875693425359	, 8.58044171255892	, 9.48024947039475	, 10.7577373681303	, 10.4781704346022	, 9.98904700995359	, 7.98434443051306	, 9.45077714331123	, 10.4052779905501	, 10.8235294329873	, 8.96755158714827	, 8.61189803326137	, 11.3385827664455	, 9.85074621352194	, 9.85945936352958	, 9.78593272171254	, 8.35164838224047	, 8.99408284910659	, 11.0662824207493	, 9.98019803956475	, 10.1108647898486	, 8.08988768589825	, 10.7917888246575	, 11.2998976111569	, 10.4239917377704	, 9.5049504950495	, 8.40466927705189	, 9.23884522518675	, 10.0261096605744	, 10.6451613117846	, 8.63136864861412	, 9.83414630308626	, 10.018975313057	, 9.6091515637663	, 10.1899441682344	, 11.1888111888112	, 10.9803920850955	, 10.5013674421248	, 12.2790697959978	, 9.89205093334592	, 9.84615384615385	, 11.1751662847282	, 10.6371191135734	, 10.6441394100193	, 10.6417736661906	, 11.3019391207864	, 9.5297805742213	, 10.4564315135759	, 12.1008402344467	, 9.97920997920998	, 9.7627117982189	, 9.74358972277011	, 9.6969696969697	, 9.09952606635071	, 9.43952802359882	, 8.70864461975309	, 8.75239927424376	, 10.0546449003155	, 10.4096385793003	, 8.85436898361768	, 8.60557765495786	, 10.2647657318495	, 9.6969696969697	, 10.5301646108239	, 10.1103310943865	, 9.02970292559553	, 9.3039647741039	, 10.837252975825	, 10.9960159143506	, 9.97032643908109	, 9.89690721649485	, 9.8064516972598	, 9.635036461186	, 11.4522822883559	, 10.4865939055805	, 10.5660378355287	, 11.2998976111569	, 11.7697227266652	, 11.4649680615846	, 11.4162160927977	, 11.6088328319849	, 9.90176827015489	, 10.3559870550162	, 10.2231237218832	, 10.6293705674279	, 10.9339407744875	, 10.5444126376631	, 10.9741551786695	, 11.2877938265645	, 10.1886792693129	, 10.120482019161	, 9.91150451249119	, 10.4052779905501	, 9.51841367862674	, 8.79837060042061	, 9.91549293912584
-]
-        
-    
+    agent_counts = [20, 22, 20, 20, 17, 18, 21, 20, 18, 17, 19, 23, 21, 19, 19, 20, 22, 18, 19, 19, 18, 21, 19, 18, 17, 22, 21, 20, 15, 17, 20, 22, 21, 18, 19, 21, 19, 19, 19, 20, 22, 21, 21, 19, 19, 23, 19, 18, 16, 18, 21, 18, 19, 18, 18, 21, 20, 20, 17, 18, 23, 15, 18, 18, 20, 21, 21, 21, 19, 22, 23, 21, 20, 19, 19, 22, 20, 22, 20, 22, 21, 15, 20, 22, 21, 18, 20, 19, 18, 23, 22, 19, 17, 20, 21, 22, 20, 18, 19
+                    ]
+    interaction_counts = [899, 1039, 950, 901, 951, 962, 937, 962, 913, 1022, 965, 1061, 1020, 1017, 1059, 889, 1072, 925, 981, 1092, 1014, 1041, 1010, 902, 1068, 1023, 977, 967, 909, 1028, 1143, 1149, 992, 1001, 1025, 1054, 1049, 895, 858, 918, 1097, 860, 1019, 975, 902, 1083, 947, 857, 722, 957, 964, 833, 962, 885, 936, 1089, 1055, 1017, 937, 1042, 1098, 830, 1030, 1004, 982, 1089, 1094, 997, 1010, 1135, 1063, 1004, 1011, 970, 930, 1096, 964, 1007, 954, 977, 938, 628, 925, 951, 1018, 927, 986, 858, 878, 1047, 1006, 893, 848, 996, 1017, 1061, 1059, 982, 1065
+                          ]
+    EHTs = [10.6785317, 10.625601550169, 10.6105263716343, 11.1875693425359, 8.58044171255892, 9.48024947039475, 10.7577373681303, 10.4781704346022, 9.98904700995359, 7.98434443051306, 9.45077714331123, 10.4052779905501, 10.8235294329873, 8.96755158714827, 8.61189803326137, 11.3385827664455, 9.85074621352194, 9.85945936352958, 9.78593272171254, 8.35164838224047, 8.99408284910659, 11.0662824207493, 9.98019803956475, 10.1108647898486, 8.08988768589825, 10.7917888246575, 11.2998976111569, 10.4239917377704, 9.5049504950495, 8.40466927705189, 9.23884522518675, 10.0261096605744, 10.6451613117846, 8.63136864861412, 9.83414630308626, 10.018975313057, 9.6091515637663, 10.1899441682344, 11.1888111888112, 10.9803920850955, 10.5013674421248, 12.2790697959978, 9.89205093334592, 9.84615384615385, 11.1751662847282, 10.6371191135734, 10.6441394100193, 10.6417736661906, 11.3019391207864, 9.5297805742213, 10.4564315135759, 12.1008402344467, 9.97920997920998, 9.7627117982189, 9.74358972277011, 9.6969696969697, 9.09952606635071, 9.43952802359882, 8.70864461975309, 8.75239927424376, 10.0546449003155, 10.4096385793003, 8.85436898361768, 8.60557765495786, 10.2647657318495, 9.6969696969697, 10.5301646108239, 10.1103310943865, 9.02970292559553, 9.3039647741039, 10.837252975825, 10.9960159143506, 9.97032643908109, 9.89690721649485, 9.8064516972598, 9.635036461186, 11.4522822883559, 10.4865939055805, 10.5660378355287, 11.2998976111569, 11.7697227266652, 11.4649680615846, 11.4162160927977, 11.6088328319849, 9.90176827015489, 10.3559870550162, 10.2231237218832, 10.6293705674279, 10.9339407744875, 10.5444126376631, 10.9741551786695, 11.2877938265645, 10.1886792693129, 10.120482019161, 9.91150451249119, 10.4052779905501, 9.51841367862674, 8.79837060042061, 9.91549293912584
+            ]
+
     for i in range(len(agent_counts)):
         INTERACTIONS_MEAN = int(round(interaction_counts[i]))
         AGENT_STARTS = agent_counts[i]
         HANDLE_TIME_MEAN = EHTs[i]
-        main()   
+        main()
+
 
 if __name__ == "__main__":
     """Use this as a driver script"""
-    
+
     # testing
     single_run()
     # full_spectrum()
     # custom_run()
-    
-    

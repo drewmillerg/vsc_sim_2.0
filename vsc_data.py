@@ -7,20 +7,20 @@ FROM PPD_DB.CAB.VC_CHASSIS
 LIMIT 20
 '''
 # change the amount of days in the past relative to today, that the data pull will get
-days = 365
+DAYS = 90
 
 # variables to hold the results
-avg_interactions_per_day = -1.0
-stdev_interactions_per_day = -1.0
-avg_starts_per_day = -1.0
-stdev_starts_per_day = -1.0
-agent_daily_output = -1.0
-effective_handle_time = -1.0
+AVG_INTERACTIONS_PER_DAY = -1.0
+STDEV_INTERACTIONS_PER_DAY = -1.0
+AVG_STARTS_PER_DAY = -1.0
+STDEV_STARTS_PER_DAY = -1.0
+AGENT_DAILY_OUTPUT = -1.0
+EFFECTIVE_HANDLE_TIME = -1.0
 
 # data = connector.get_query(QUERY)
 
-def __get_avg_interactions_table():
-    global days
+def get_interactions_table():
+    global DAYS
     
     query = '''
     -- Interactions per day, where count is higher than specified amount in the having clause.
@@ -40,13 +40,13 @@ def __get_avg_interactions_table():
     group by date(convert_timezone('UTC', 'America/Los_Angeles', A.CREATEDDATE))
         having count(*) > 500
     order by date(convert_timezone('UTC', 'America/Los_Angeles', A.CREATEDDATE));
-    '''.format(days)
+    '''.format(DAYS)
     
     return connector.get_data(query)
 
 
-def __get_agent_starts_table():
-    global days
+def get_agent_starts_table():
+    global DAYS
     
     query = '''
     -- average agent starts per day
@@ -75,38 +75,38 @@ def __get_agent_starts_table():
     GROUP BY DATE
     HAVING COUNT(*) >= 10
     ORDER BY DATE;
-    '''.format(days)
+    '''.format(DAYS)
     return connector.get_data(query)
 
 def fetch():
     """Gets the data based ont the queries that are defined above"""
-    global avg_interactions_per_day, stdev_interactions_per_day
-    global avg_starts_per_day, stdev_starts_per_day
-    global agent_daily_output, effective_handle_time
+    global AVG_INTERACTIONS_PER_DAY, STDEV_INTERACTIONS_PER_DAY
+    global AVG_STARTS_PER_DAY, STDEV_STARTS_PER_DAY
+    global AGENT_DAILY_OUTPUT, EFFECTIVE_HANDLE_TIME
     # interactions data
-    idf = __get_avg_interactions_table()
+    idf = get_interactions_table()
     print(idf.head())
 
-    avg_interactions_per_day = idf["DAILYINTERACTIONCOUNT"].mean()
-    print("average interactions per day: ", avg_interactions_per_day)
+    AVG_INTERACTIONS_PER_DAY = idf["DAILYINTERACTIONCOUNT"].mean()
+    print("average interactions per day: ", AVG_INTERACTIONS_PER_DAY)
 
-    stdev_interactions_per_day = idf["DAILYINTERACTIONCOUNT"].std()
-    print("stdev of interactions per day: ", stdev_interactions_per_day)
+    STDEV_INTERACTIONS_PER_DAY = idf["DAILYINTERACTIONCOUNT"].std()
+    print("stdev of interactions per day: ", STDEV_INTERACTIONS_PER_DAY)
 
     # agent starts data
-    sdf = __get_agent_starts_table()
+    sdf = get_agent_starts_table()
     print(sdf.head())
 
-    avg_starts_per_day = sdf["NUMBEROFUSERS"].mean()
-    print("average starts per day: ", avg_starts_per_day)
+    AVG_STARTS_PER_DAY = sdf["NUMBEROFUSERS"].mean()
+    print("average starts per day: ", AVG_STARTS_PER_DAY)
 
-    stdev_starts_per_day = sdf["NUMBEROFUSERS"].std()
-    print("stdev of starts per day: ", stdev_starts_per_day)
+    STDEV_STARTS_PER_DAY = sdf["NUMBEROFUSERS"].std()
+    print("stdev of starts per day: ", STDEV_STARTS_PER_DAY)
     
-    agent_daily_output = avg_interactions_per_day / avg_starts_per_day
-    print("agent output per day: ", agent_daily_output)
+    AGENT_DAILY_OUTPUT = AVG_INTERACTIONS_PER_DAY / AVG_STARTS_PER_DAY
+    print("agent output per day: ", AGENT_DAILY_OUTPUT)
     
-    effective_handle_time = 480.0 / (avg_interactions_per_day / avg_starts_per_day)
+    EFFECTIVE_HANDLE_TIME = 480.0 / (AVG_INTERACTIONS_PER_DAY / AVG_STARTS_PER_DAY)
 
 if __name__=='__main__':
     fetch()
